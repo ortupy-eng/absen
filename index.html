@@ -1,0 +1,163 @@
+'use client';
+
+import { useState, useEffect } from 'react';
+import { Html5QrcodeScanner } from 'html5-qrcode';
+import { QRCodeSVG } from 'qrcode.react';
+
+// GANTI DENGAN WEB APP URL DARI GOOGLE APPS SCRIPT ANDA
+const GOOGLE_SCRIPT_URL = "https://script.google.com/macros/s/AKfycbw0LePdCxWlqH1NjSWNLqpdx6UJTuGZACQ3q4658kP72iPrseOiLcBVqiYr03bayglF/exec";
+
+export default function Home() {
+  const [activeTab, setActiveTab] = useState<'scan' | 'generate'>('scan');
+  
+  // State untuk Generate QR
+  const [studentId, setStudentId] = useState('');
+  const [studentName, setStudentName] = useState('');
+  const [studentClass, setStudentClass] = useState('');
+  const [generatedQR, setGeneratedQR] = useState('');
+
+  // State untuk Log Scanner
+  const [scanStatus, setScanStatus] = useState({ type: '', message: '' });
+
+  // Inisialisasi Scanner QR
+  useEffect(() => {
+    if (activeTab === 'scan') {
+      const scanner = new Html5QrcodeScanner(
+        'reader', 
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        /* verbose= */ false
+      );
+
+      const onScanSuccess = async (decodedText: string) => {
+        try {
+          // Menghentikan scanner sementara agar tidak dobel scan
+          setScanStatus({ type: 'loading', message: 'Sedang mencatat presensi...' });
+          
+          // Data QR harus berformat JSON string: {"id":"123","nama":"Ahmad","kelas":"7A"}
+          const studentData = JSON.parse(decodedText);
+          
+          if (!studentData.id || !studentData.nama || !studentData.kelas) {
+            throw new Error("Format QR Code salah.");
+          }
+
+          // Kirim data ke Google Sheets
+          const response = await fetch(GOOGLE_SCRIPT_URL, {
+            method: 'POST',
+            mode: 'no-cors', // Diperlukan untuk Google Apps Script
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(studentData),
+          });
+
+          setScanStatus({ 
+            type: 'success', 
+            message: `Berhasil! ${studentData.nama} (${studentData.kelas}) telah dicatat.` 
+          });
+
+        } catch (err) {
+          setScanStatus({ 
+            type: 'error', 
+            message: 'Gagal membaca QR atau format data tidak sesuai.' 
+          });
+        }
+      };
+
+      scanner.render(onScanSuccess, (err) => {
+        // Handle scan error tersembunyi agar tidak spamming log
+      });
+
+      return () => {
+        scanner.clear().catch(error => console.error("Failed to clear scanner", error));
+      };
+    }
+  }, [activeTab]);
+
+  const handleGenerate = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!studentId || !studentName || !studentClass) return;
+
+    const payload = JSON.stringify({
+      id: studentId,
+      nama: studentName,
+      kelas: studentClass.toUpperCase().replace(/\s+/g, '') // Format seragam, misal: 7A
+    });
+
+    setGeneratedQR(payload);
+  };
+
+  return (
+    <main className="min-h-screen bg-gray-50 p-4 md:p-8">
+      <div className="max-w-md mx-auto bg-white rounded-xl shadow-md overflow-hidden md:max-w-2xl border border-gray-100">
+        
+        {/* Navigasi Tab */}
+        <div className="flex border-b border-gray-200">
+          <button 
+            className={`flex-1 py-4 text-center font-medium ${activeTab === 'scan' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => { setActiveTab('scan'); setScanStatus({ type: '', message: '' }); }}
+          >
+            Scan QR Santri
+          </button>
+          <button 
+            className={`flex-1 py-4 text-center font-medium ${activeTab === 'generate' ? 'text-indigo-600 border-b-2 border-indigo-600 bg-indigo-50/30' : 'text-gray-500 hover:text-gray-700'}`}
+            onClick={() => setActiveTab('generate')}
+          >
+            Buat QR Santri
+          </button>
+        </div>
+
+        <div className="p-6">
+          {/* TAB SCANNER */}
+          {activeTab === 'scan' && (
+            <div className="space-y-4">
+              <h2 className="text-xl font-bold text-gray-800 text-center">Arahkan Kamera ke QR Code Santri</h2>
+              <div id="reader" className="overflow-hidden rounded-lg border border-gray-200"></div>
+              
+              {scanStatus.message && (
+                <div className={`p-4 rounded-lg text-center font-medium ${
+                  scanStatus.type === 'success' ? 'bg-green-100 text-green-800' : 
+                  scanStatus.type === 'loading' ? 'bg-yellow-100 text-yellow-800' : 'bg-red-100 text-red-800'
+                }`}>
+                  {scanStatus.message}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* TAB GENERATOR */}
+          {activeTab === 'generate' && (
+            <div className="space-y-6">
+              <h2 className="text-xl font-bold text-gray-800">Form Pembuatan QR Code</h2>
+              <form onSubmit={handleGenerate} className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">NIS / ID Santri</label>
+                  <input type="text" required value={studentId} onChange={e => setStudentId(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-black"/>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Nama Lengkap</label>
+                  <input type="text" required value={studentName} onChange={e => setStudentName(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-black"/>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-gray-700">Kelas (Misal: 7A, 8B)</label>
+                  <input type="text" required value={studentClass} onChange={e => setStudentClass(e.target.value)} className="mt-1 block w-full px-3 py-2 border border-gray-300 rounded-md shadow-sm focus:outline-none focus:ring-indigo-500 focus:border-indigo-500 text-black" placeholder="Contoh: 7A"/>
+                </div>
+                <button type="submit" className="w-full py-2 px-4 border border-transparent rounded-md shadow-sm text-sm font-medium text-white bg-indigo-600 hover:bg-indigo-700 focus:outline-none">
+                  Generate QR Code
+                </button>
+              </form>
+
+              {generatedQR && (
+                <div className="flex flex-col items-center justify-center p-6 border border-dashed border-gray-300 rounded-lg bg-gray-50 space-y-4">
+                  <QRCodeSVG value={generatedQR} size={200} />
+                  <p className="text-xs text-gray-500 text-center font-mono max-w-xs break-all bg-gray-200 p-2 rounded">
+                    {generatedQR}
+                  </p>
+                  <p className="text-sm text-gray-700 font-semibold">QR Code siap dicetak / diunduh untuk {studentName}</p>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+
+      </div>
+    </main>
+  );
+}
